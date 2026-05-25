@@ -1,0 +1,41 @@
+# secrets
+.env
+.env.local
+
+# python
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+
+# node
+node_modules/
+
+# generated audio / local runtime data
+uploads/
+data/
+
+# private voice samples
+voice_samples/*
+!voice_samples/.gitkeep
+
+# ignore audio files by default
+*.wav
+*.mp3
+*.webm
+*.m4a
+*.ogg
+
+# but allow safe demo assets
+!demo_assets/
+!demo_assets/*.wav
+!demo_assets/*.mp3
+!demo_assets/*.webm
+!demo_assets/*.m4a
+!demo_assets/*.ogg
+!demo_assets/*.json
+
+# system
+.DS_Store
+Thumbs.db

@@ -1,0 +1,28 @@
+{
+  "name": "oratio",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "setup": "npm install && py -m pip install -r requirements.txt",
+    "dev": "concurrently -k -n STT,TTS,WEB \"py stt_service.py\" \"py tts_service.py\" \"nodemon server.js\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "form-data": "^4.0.4",
+    "multer": "^2.0.2",
+    "music-metadata": "^11.9.0",
+    "node-fetch": "^3.3.2",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "nodemon": "^3.1.10"
+  }
+}

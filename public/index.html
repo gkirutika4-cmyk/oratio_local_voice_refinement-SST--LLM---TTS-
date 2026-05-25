@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Oratio – Voice Refinement</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * { box-sizing: border-box; }
+    body { 
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; 
+      max-width: 860px; 
+      margin: 40px auto; 
+      padding: 0 16px;
+      background: #f8f9fa;
+    }
+    h1 { margin-bottom: 8px; }
+    button { 
+      padding: 12px 20px; 
+      margin-right: 8px; 
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #recordBtn { background: #dc3545; color: white; }
+    #stopBtn { background: #6c757d; color: white; }
+    #recordBtn:hover:not(:disabled) { background: #c82333; }
+    
+    .controls { 
+      background: white; 
+      padding: 20px; 
+      border-radius: 10px; 
+      margin-bottom: 24px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .grid { 
+      display: grid; 
+      grid-template-columns: 1fr 1fr; 
+      gap: 16px; 
+      margin-top: 16px; 
+    }
+    @media (max-width: 640px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .card { 
+      background: white;
+      border: 1px solid #e0e0e0; 
+      border-radius: 10px; 
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .card h3 { margin-top: 0; margin-bottom: 12px; font-size: 16px; }
+    .muted { color: #666; font-size: 14px; }
+    .success { color: #28a745; font-weight: 500; }
+    .error { color: #dc3545; font-weight: 500; }
+    .warning { color: #ffc107; font-weight: 500; }
+    pre { 
+      white-space: pre-wrap; 
+      word-wrap: break-word; 
+      background: #f8f9fa;
+      padding: 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    audio { width: 100%; margin-top: 8px; }
+    .metrics-row { 
+      display: flex; 
+      justify-content: space-between; 
+      padding: 8px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .metrics-row:last-child { border-bottom: none; }
+    .metrics-label { font-weight: 500; }
+    .metrics-value { color: #495057; }
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+    .status-recording { background: #dc3545; animation: pulse 1.5s infinite; }
+    .status-processing { background: #ffc107; animation: pulse 1.5s infinite; }
+    .status-done { background: #28a745; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .debug-info {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      padding: 12px;
+      margin-top: 16px;
+      font-size: 13px;
+      font-family: 'Courier New', monospace;
+    }
+    .debug-info summary {
+      cursor: pointer;
+      font-weight: 500;
+      user-select: none;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #999;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎙️ Oratio — Voice Refinement</h1>
+  <p class="muted">Record → Transcribe → Remove fillers → Add natural pauses → Preview enhanced delivery</p>
+
+  <div class="controls">
+    <button id="recordBtn">● Record</button>
+    <button id="stopBtn" disabled>■ Stop</button>
+    <br><br>
+    <div id="status" class="muted">Ready to record</div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>📼 Original Recording</h3>
+      <div id="originalEmpty" class="empty-state muted">No recording yet</div>
+      <audio id="originalPlayer" controls style="display:none"></audio>
+    </div>
+    <div class="card">
+      <h3>📊 Metrics</h3>
+      <div id="metricsEmpty" class="empty-state muted">Waiting for analysis...</div>
+      <div id="metrics" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3>✨ Refined Text (AI-Processed)</h3>
+    <div id="refinedEmpty" class="empty-state muted">Transcript will appear here</div>
+    <pre id="refinedText" style="display:none"></pre>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3>🎵 Enhanced Audio (Text-to-Speech)</h3>
+    <p class="muted">Your voice with improved delivery — same tone, better pacing</p>
+    <div id="kuralEmpty" class="empty-state muted">Enhanced audio will appear here</div>
+    <audio id="kuralPlayer" controls style="display:none"></audio>
+  </div>
+
+  <details class="debug-info">
+    <summary>🔧 Debug Info</summary>
+    <div id="debugLog"></div>
+  </details>
+
+  <script>
+  let mediaRecorder, chunks = [];
+  const recordBtn = document.getElementById("recordBtn");
+  const stopBtn = document.getElementById("stopBtn");
+  const statusEl = document.getElementById("status");
+  const originalPlayer = document.getElementById("originalPlayer");
+  const originalEmpty = document.getElementById("originalEmpty");
+  const refinedTextEl = document.getElementById("refinedText");
+  const refinedEmpty = document.getElementById("refinedEmpty");
+  const metricsEl = document.getElementById("metrics");
+  const metricsEmpty = document.getElementById("metricsEmpty");
+  const kuralPlayer = document.getElementById("kuralPlayer");
+  const kuralEmpty = document.getElementById("kuralEmpty");
+  const debugLog = document.getElementById("debugLog");
+
+  // Auto-detect backend URL
+  const SAME_ORIGIN = location.origin.startsWith("http");
+  const BASE = SAME_ORIGIN ? "" : "http://localhost:8080";
+
+  function log(msg, type = "info") {
+    const timestamp = new Date().toLocaleTimeString();
+    const color = type === "error" ? "#dc3545" : type === "success" ? "#28a745" : "#495057";
+    debugLog.innerHTML += `<div style="color:${color};margin:4px 0">[${timestamp}] ${msg}</div>`;
+    console.log(`[${type}]`, msg);
+  }
+
+  function setStatus(msg, type = "muted") {
+    const dotClass = type === "recording" ? "status-recording" : 
+                     type === "processing" ? "status-processing" : 
+                     type === "success" ? "status-done" : "";
+    const dot = dotClass ? `<span class="status-dot ${dotClass}"></span>` : "";
+    statusEl.innerHTML = `${dot}${msg}`;
+    statusEl.className = type === "error" ? "error" : type === "success" ? "success" : "muted";
+  }
+
+  function makeAbort(ms = 90000) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), ms);
+    return { signal: ctl.signal, clear: () => clearTimeout(t) };
+  }
+
+  function showElement(el, empty) {
+    el.style.display = "block";
+    if (empty) empty.style.display = "none";
+  }
+
+  async function checkHealth() {
+    try {
+      const res = await fetch(`${BASE}/api/health`);
+      const health = await res.json();
+      log(`Health check: STT=${health.services?.stt || 'unknown'}, TTS=${health.services?.tts || 'unknown'}`, "info");
+      return health;
+    } catch (e) {
+      log(`Health check failed: ${e.message}`, "error");
+      return null;
+    }
+  }
+
+  async function startRecording() {
+    log("Starting recording...", "info");
+    
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      log("Microphone access granted", "success");
+      
+      // Prefer WebM/Opus for better quality and compatibility
+      const mt = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus' 
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : undefined;
+      
+      log(`Using MIME type: ${mt || 'default'}`, "info");
+      mediaRecorder = new MediaRecorder(stream, mt ? { mimeType: mt } : {});
+      chunks = [];
+
+      mediaRecorder.ondataavailable = e => { 
+        if (e.data?.size) {
+          chunks.push(e.data);
+          log(`Chunk received: ${(e.data.size / 1024).toFixed(1)} KB`, "info");
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        log("Recording stopped, creating blob...", "info");
+        const blob = new Blob(chunks, { type: mt || 'audio/webm' });
+        log(`Total recording size: ${(blob.size / 1024).toFixed(1)} KB`, "info");
+        
+        // Show original preview immediately
+        const localUrl = URL.createObjectURL(blob);
+        originalPlayer.src = localUrl;
+        showElement(originalPlayer, originalEmpty);
+        try { await originalPlayer.play(); } catch (_) {}
+
+        setStatus("Uploading to server...", "processing");
+        recordBtn.disabled = true;
+        stopBtn.disabled = true;
+
+        const fd = new FormData();
+        fd.append("audio", blob, "recording.webm");
+
+        const { signal, clear } = makeAbort(600000);
+        try {
+          log(`Uploading to ${BASE}/api/upload`, "info");
+          const res = await fetch(`${BASE}/api/upload`, { 
+            method: "POST", 
+            body: fd, 
+            signal 
+          });
+
+          if (!res.ok) {
+            const txt = await res.text().catch(() => "");
+            throw new Error(`HTTP ${res.status}: ${txt.slice(0, 200)}`);
+          }
+          
+          const data = await res.json();
+          log(`Server response: ${JSON.stringify(data)}`, "success");
+          
+          // Update UI with results
+          if (data.originalUrl) {
+            originalPlayer.src = BASE + data.originalUrl;
+            log(`Original URL: ${data.originalUrl}`, "info");
+          }
+          
+          if (data.kuralUrl) {
+            kuralPlayer.src = data.kuralUrl;
+            showElement(kuralPlayer, kuralEmpty);
+            log(`Enhanced audio URL: ${data.kuralUrl}`, "success");
+          } else {
+            log(`No enhanced audio (TTS status: ${data.ttsStatus || 'unknown'})`, "warning");
+            kuralEmpty.innerHTML = `<div class="empty-state warning">
+              TTS not available (status: ${data.ttsStatus || 'unknown'})<br>
+              <small>Make sure tts_service.py is running on port 9001</small>
+            </div>`;
+            kuralEmpty.style.display = "block";
+          }
+          
+          if (data.refinedPreview) {
+            refinedTextEl.textContent = data.refinedPreview;
+            showElement(refinedTextEl, refinedEmpty);
+            log(`Refined text length: ${data.refinedPreview.length} chars`, "info");
+          } else {
+            log("No refined text available", "warning");
+            refinedEmpty.innerHTML = `<div class="empty-state warning">
+              No transcript (STT status: ${data.sttStatus || 'unknown'})<br>
+              <small>Make sure stt_service.py is running on port 9000</small>
+            </div>`;
+            refinedEmpty.style.display = "block";
+          }
+          
+          if (data.metrics) {
+            metricsEl.innerHTML = `
+              <div class="metrics-row">
+                <span class="metrics-label">Filler Words</span>
+                <span class="metrics-value">${data.metrics.fillerCount || 0}</span>
+              </div>
+              <div class="metrics-row">
+                <span class="metrics-label">Words per Minute</span>
+                <span class="metrics-value">${Math.round(data.metrics.wpm || 0)}</span>
+              </div>
+              ${data.metrics.duration ? `
+              <div class="metrics-row">
+                <span class="metrics-label">Duration</span>
+                <span class="metrics-value">${data.metrics.duration}s</span>
+              </div>` : ''}
+            `;
+            showElement(metricsEl, metricsEmpty);
+            log(`Metrics: ${data.metrics.fillerCount} fillers, ${Math.round(data.metrics.wpm)} WPM`, "info");
+          }
+          
+          setStatus(`✓ Processing complete (STT: ${data.sttStatus}, TTS: ${data.ttsStatus})`, "success");
+          
+        } catch (err) {
+          log(`Upload failed: ${err.message}`, "error");
+          setStatus("❌ Upload failed", "error");
+          alert(
+            "Upload failed. Please check:\n\n" +
+            "1. Is server.js running? (npm run dev)\n" +
+            "2. Is STT service running? (python stt_service.py)\n" +
+            "3. Is TTS service running? (python tts_service.py)\n\n" +
+            "Error: " + err.message
+          );
+        } finally {
+          clear();
+          recordBtn.disabled = false;
+          stopBtn.disabled = true;
+        }
+      };
+
+      mediaRecorder.start();
+      recordBtn.disabled = true;
+      stopBtn.disabled = false;
+      setStatus("Recording... speak now", "recording");
+      
+    } catch (err) {
+      log(`Recording failed: ${err.message}`, "error");
+      setStatus("❌ Recording failed", "error");
+      alert("Could not access microphone. Please check permissions.");
+      recordBtn.disabled = false;
+      stopBtn.disabled = true;
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      log("Stopping recording...", "info");
+      mediaRecorder.stop();
+      mediaRecorder.stream.getTracks().forEach(track => track.stop());
+      setStatus("Processing audio...", "processing");
+    }
+  }
+
+  recordBtn.addEventListener("click", startRecording);
+  stopBtn.addEventListener("click", stopRecording);
+
+  // Initial health check
+  checkHealth();
+  log("Frontend loaded successfully", "success");
+  log(`Backend URL: ${BASE}`, "info");
+  </script>
+</body>
+</html>
